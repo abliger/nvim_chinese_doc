@@ -1,0 +1,389 @@
+*term.txt*      Nvim
+
+
+                            NVIM REFERENCE MANUAL
+
+
+终端界面       							*TUI* *tui*
+
+Nvim使用终端功能列表来显示其用户界面( 除了 |--embed| 和 |--headless|
+模式).如果该信息是错误的, 屏幕显示信息可能会被弄乱或者按键可能无法识别.
+                                      				键入 |gO| 查看目录.
+
+==============================================================================
+开始						*startup-terminal*
+
+( 除了 |--embed| 和 |--headless| 模式 ) Nvim 会在它启动时猜测终端类型.
+终端类型主要通过 |$TERM| 环境变量确定.
+
+					*terminfo* *E557* *E558* *E559*
+terminfo 数据库如果可用,将会被使用.
+
+Nvim 用来读取 terminfo 的依赖库 Unibilium 允许你去在 $HOME/.terminfo/
+目录下重写系统 terminfo. 使用下面的代码会非常简单的去构建你自己的
+terminfo,且不需要管理员权限: >vim
+>
+  curl -LO https://invisible-island.net/datafiles/current/terminfo.src.gz
+  gunzip terminfo.src.gz
+  tic terminfo.src
+<
+								*$TERM*
+$TERM 环境变量的值必须和你正在使用的终端类型一致!否则 Nvim
+无法知道你终端的期望排序,进而导致次优行为( 如:古怪的滚动,错误的颜色等).
+
+$TERM 是非常重要的, 与其他环境变量不同, 它会通过 ssh 发送到远程会话中.
+
+  终端                        $TERM 应设值                  |builtin-terms|
+  -------------------------------------------------------------------------
+  anything libvte-based       vte, vte-256color                   Y
+   (e.g. GNOME Terminal)      (aliases: gnome, gnome-256color)
+  iTerm (original)            iterm, iTerm.app                    N
+  iTerm2 (new capabilities)   iterm2, iTerm2.app                  Y
+  Konsole                     konsole-256color                    N
+  Linux virtual terminal      linux, linux-256color               Y
+  PuTTY                       putty, putty-256color               Y
+  rxvt                        rxvt, rxvt-256color                 Y
+  screen                      screen, screen-256color             Y
+  simple terminal (st)        st, st-256color                     Y
+  Terminal.app                nsterm                              N
+  tmux                        tmux, tmux-256color                 Y
+  Windows/ConEmu              conemu                              Y
+  Windows/Cygwin-built Nvim   cygwin                              Y
+  Windows/Interix             interix                             Y
+  Windows/VTP console         vtpcon                              Y
+  Windows/legacy console      win32con                            Y
+  xterm or compatible         xterm, xterm-256color               Y
+
+					*builtin-terms* *builtin_terms*
+如果 |terminfo| 数据库不可用, 或者当前数据库没有条目终端, Nvim将根据上述内容将
+|$TERM| 映射到内置条目表, 或 "ansi" (如果没有匹配项). 例如
+"TERM=putty-256color" 将映射到内置的 "putty" 条目.另请参见 |tui-colors|.
+
+内置的 terminfo 既没有与任何外部 terminfo 数据库相结合,
+也不能优先使用其中一个. 因此, 您可以通过提供一个带有终端类型条目的外部数据库,
+完全覆盖内置 terminfo 数据库中的任何遗漏或过时信息.
+
+根据终端变换设置                       			*term-dependent-settings*
+
+如果你想要根据终端来进行设置或映射,你可以在你的 init.vim
+文件中写入下面的内容,例如: >vim
+
+    if $TERM =~ '^\(rxvt\|screen\|interix\|putty\)\(-.*\)\?$'
+        set notermguicolors
+    elseif $TERM =~ '^\(tmux\|iterm\|vte\|gnome\)\(-.*\)\?$'
+        set termguicolors
+    elseif $TERM =~ '^\(xterm\)\(-.*\)\?$'
+        if $XTERM_VERSION != ''
+            set termguicolors
+        elseif $KONSOLE_PROFILE_NAME != ''
+            set termguicolors
+        elseif $VTE_VERSION != ''
+            set termguicolors
+        else
+            set notermguicolors
+        endif
+    elseif $TERM =~ ...
+        ... and so forth ...
+    endif
+<
+					*scroll-region* *xterm-scroll-region*
+在可能的情况下, Nvim将使用终端设置滚动区域的能力,
+以便在滚动窗口时更快地重新绘制. 如果终端的 terminfo
+描述描述了设置上下滚动页边距的能力, 则使用该功能.
+
+这不会加快在不是终端全宽的窗口中滚动的速度. Xterm 有一个额外的功能,terminfo
+没有描述, 可以设置左右滚动页边距. 如果 Nvim 检测到终端是 Xterm,
+它将利用这种能力来加速不是终端全宽的滚动.
+
+								*tui-input*
+从前的终端仿真器无法区分某些控制密钥修饰符和其他密钥. 例如, <C-I> 和
+<Tab> 是一样的,同样的还有 <Esc> 和 <C-[>, <CR> 和 <C-M>, 最后还有 <NL> 和
+<C-J>.
+
+现代终端仿真器通过编码成不同的控制修饰符能够区分这些密钥对.
+有两种常见但不同的方法去做这些事情, 称为 "modifyOtherKeys" 和 "CSI u".
+Nvim支持这两种编码方法, 并且在启动时会告诉终端模拟器它理解这些密钥编码.
+如果您的终端模拟器支持它, 那么这将允许您分别映射上面列出的密钥对. |<Tab>|
+
+
+Nvim 使用 libtermkey 将终端转义序列转换为密钥代码. 'terminfo' 首先被使用,
+并且不在 |terminfo| 中的 CSI 序列( 包括扩展密钥, 也称为 "modifyOtherKeys" 或
+"CSI u") 也可以被解析.
+
+例如,当在 tmux 中运行 Nvim 时, 下面的代码会使 Nvim
+离开插入模式,并且转移到下面的窗口: >
+	tmux send-keys 'Escape' [ 2 7 u 'C-W' j
+其中 `'Escape' [ 2 7 u` 是 <Esc> 键的一个 "CSI u" 序列.
+
+kitty 键盘协议 https://sw.kovidgoyal.net/kitty/keyboard-protocol/ 会部分支持,
+包括 Unicode 专用区中的键盘键.
+例如, 这个序列会被 Nvim 认作 <C-kEnter>: >
+	CSI 57414 ; 5 u
+并且在映射中可以与 <C-CR> 不向冲突的使用.
+
+						*tui-modifyOtherKeys* *tui-csiu*
+在启动时, Nvim 会通过写入下列序列来查询您的终端, 看看它是否支持 "CSI u" 编码: >
+	CSI ? u CSI c
+如果你的终端仿真器返回下面内容 >
+	CSI ? <flags> u
+这意味着你的终端支持 "CSI u" 编码,并通过写入下面的序列 Nvim
+来告诉你的终端去开启它 >
+	CSI > 1 u
+如果你的终端不支持 "CSI u" , Nvim 将会写入下面序列来启动 "modifyOtherKeys"
+编码 >
+	CSI > 4 ; 2 m
+
+当 Nvim 干净地退出时, 它将发送相应的序列来禁用特殊密钥编码. 如果 Nvim
+没有干净地退出, 那么您的终端模拟器可能处于错误状态. 如果发生这种情况, 只需运行
+"reset" 即可.
+
+							*tui-colors*
+Nvim 默认使用 256 种颜色. Nvim 对于大多数的终端类型都会忽略 |terminfo|,
+其中包括 "linux" (自4.8以来, 其虚拟终端支持 256-colour) 和 带有 "xterm"
+的终端声明. 当然也包括 $COLORTERM 或 $TERM 环境变量值中包含字符 "256"的.
+
+同样地 Nvim 也假定,任一的终端仿真器将 $COLORTERM 设置成任何值, 都会至少能操作
+16 种颜色.
+
+						*true-color* *xterm-true-color*
+如果设置了 'termguicolors', 则 Nvim 在终端中发出 true（24- bit）颜色.
+
+它使用 "setrgbf" 和 "setrgbb" |terminfo| 拓展 ( 在 2013 年被 Rüdiger
+Sonderfeld 提出). 如果你的 terminfo 定义中没有它们, 那么 Nvim 会使用 ISO
+8613-6:1994/ITU T.416:1993 控制序列来设置 RGB 颜色 ( 修改为使用分号而不是冒号,
+除非已知终端符合标准), 来决定是否将他们添加到 'terminfo' 定义中.
+
+另一个由 tmux 于 2016 年首创的公约是 "Tc" terminfo 扩展. 如果 terminfo
+有这个标志,Nvim 将添加构造的 "setrgbf" 和 "setrgbb" 功能, 就像它们在 terminfo
+定义中一样.
+
+如果 terminfo 没有这个标志, Nvim 将回落到 $TERM 和其他环境变量. 在
+"rxvt"、"linux"、"st"、 "tmux" 和 "iterm" 终端类型的情况下, 或者在检测到
+Konsole、正版 Xterm、版本 0.36 或更高版本的 libvte 终端模拟器, 或者将
+COLORTERM 环境变量设置为 "truecolor" 的终端模拟器时,它将添加构造的 "setrgbf"
+和 "setrgbb"功能.
+
+							*xterm-resize*
+Nvim 可以在一些实现了 dtterm 扩展的终端上调整终端显示的大小. |terminfo|
+没有此扩展的标志.因此, Nvim 简单地假设( 所有) "dtterm" 、"xterm" 、"teratent"
+、"rxvt" 终端类型和 Konsole 都能够做到这一点.
+
+							*tui-cursor-shape*
+Nvim 将在插入模式下(或由 'guicursor' 选项指定), 在支持它的终端上,
+将光标的形状从块调整为线. 它使用与 tmux 开创的 |terminfo| 扩展相同的扩展: "Ss"
+和 "Se".
+类似地, 如果将光标高亮显示组设置为 blend=100, Nvim 将通过 "cvvis" 和 "civis"
+扩展隐藏光标.
+
+如果您的 terminfo 定义缺少它们, 那么 Nvim 将通过查看 $TERM
+和其他环境变量来决定是否将它们添加到 terminfo 定义中.对于 "rxvt"、 "putty"、
+"linux"、 "screen"、 "teratent" 和 "iterm" 终端类型,或者当检测到 Konsole、基于
+libvte 的终端模拟器或正版 Xterm 时, 它将添加构建的 "Ss" 和 "Se" 功能.
+
+							*tui-cursor-tmux*
+在 tmux 中, Nvim 似乎没有更改光标, 但事实上, 它是 tmux 从 Nvim
+接收更改光标的指令,而不知道该怎么做.tmux 必须将它从 Nvim
+接收到的内容转换成适合于主机终端的任何控制序列. 它与 Nvim 共享一个通用机制,
+即使用 terminfo( 用于输出端子 ) 中的 "Ss"和 "Se" 功能( 如果存在 ). 与 Nvim
+不同, 如果它们不在 terminfo 中, 则必须通过在 ~/.tmux.conf 中设置 "terminal
+overrides"来添加它们.
+
+有关如何以及如何在 tmux 配置文件中执行操作的详细信息, 请参阅 tmux(1) 手册页面.
+它看起来像 >bash
+	set -ga terminal-overrides '*:Ss=\E[%p1%d q:Se=\E[ q'
+< 或者对于 Konsole 18.07.70 或者更旧的版本: >bash
+	set -ga terminal-overrides 'xterm*:\E]50;CursorShape=%?%p1%{3}%<%t%{0}%e%{1}%;%d\007'
+<
+==============================================================================
+窗口大小						*window-size*
+
+[这大约是 Vim 使用的整个窗口的大小,而不是使用 ":split" 命令创建的窗口.]
+
+在 Unix 系统上, 尝试使用三种方法来获取窗口大小:
+
+- ioctl调用(TIOCGSIZE 或 TIOCGWINSZ, 取决于您的系统)
+- 环境变量 "LINES" 和 "COLUMNS"
+- |terminfo| 的 "lines" 和 "columns" 条例
+
+如果所有操作都失败, 则假定默认大小为 24 行 80 列. 如果接收到窗口调整大小信号,
+则将再次设置大小. 如果窗口大小错误. 可以使用 'lines' 和 'columns'
+选项来设置正确的值.请参见 |:mode|.
+
+==============================================================================
+慢速和快速终端					*slow-fast-terminal*
+						*slow-terminal*
+
+如果您的终端速度较慢, 您可能需要重置 'showcmd'和 'ruler' 选项.
+命令字符和光标位置不会显示在状态行中(
+这涉及到每次按键或移动时的大量光标移动和属性更改 ).如果终端滚动非常慢,请将
+'scrolljump' 设置为 5 左右. 如果光标从屏幕上移开( 例如,用 "j" ),
+Vim将一次滚动5行. 另一种可能性是在 Vim 中使用命令 "z{height}<CR>"以减少行数.
+
+如果来自终端的字符到达时间间隔超过 1 秒, 则可能需要设置 'timeout' 和/或
+'ttimeout' 选项. 查阅选项章节 |options|.
+
+如果您使用带有颜色的终端在显示缓冲区末尾以外的行时速度较慢,
+这是因为Nvim在两组颜色和属性中绘制了两次空白. 要防止这种情况, 请使用以下命令:
+>vim
+	hi NonText cterm=NONE ctermfg=NONE
+这将使用默认的颜色和属性绘制空间, 从而可以优化第二次绘制. 注意:
+虽然在理论上空白的颜色是无关紧要的, 但在实践中,
+它们会改变光标和交叉光标的选择的颜色. 这可能会对某些UI产生明显但轻微的影响.
+
+==============================================================================
+使用鼠标           						*mouse-using*
+
+					*mouse-mode-table* *mouse-overview*
+当 'mousemodel' 为 "extend" 时,鼠标按钮的作用概述:
+
+一般模式:
+事件   	      光标位置	     选择      	    是否改  活动      ~
+					    变窗口  	      ~
+<LeftMouse>     yes	     end	    yes
+<C-LeftMouse>   yes	     end	    yes	   "CTRL-]" (2)
+<S-LeftMouse>   yes	  no change	    yes	   "*" (2)    *<S-LeftMouse>*
+<LeftDrag>      yes	start or extend (1) no		      *<LeftDrag>*
+<LeftRelease>   yes	start or extend (1) no
+<MiddleMouse>   yes	  if not active     no	   put
+<MiddleMouse>   yes	  if active	    no	   yank and put
+<RightMouse>    yes	start or extend     yes
+<A-RightMouse>  yes start or extend blockw. yes		      *<A-RightMouse>*
+<S-RightMouse>  yes	   no change	    yes	   "#" (2)    *<S-RightMouse>*
+<C-RightMouse>  no	   no change	    no	   "CTRL-T"
+<RightDrag>     yes	    extend	    no		      *<RightDrag>*
+<RightRelease>  yes	    extend	    no		      *<RightRelease>*
+
+插入替换模式:
+事件   	      光标位置	     选择      	    是否改  活动      ~
+					    变窗口  	      ~
+<LeftMouse>     yes     (cannot be active)  yes
+<C-LeftMouse>   yes     (cannot be active)  yes	   "CTRL-O^]" (2)
+<S-LeftMouse>   yes     (cannot be active)  yes	   "CTRL-O*" (2)
+<LeftDrag>      yes     start or extend (1) no	   like CTRL-O (1)
+<LeftRelease>   yes     start or extend (1) no	   like CTRL-O (1)
+<MiddleMouse>   no      (cannot be active)  no	   put register
+<RightMouse>    yes     start or extend	    yes	   like CTRL-O
+<A-RightMouse>  yes start or extend blockw. yes
+<S-RightMouse>  yes     (cannot be active)  yes	   "CTRL-O#" (2)
+<C-RightMouse>  no	(cannot be active)  no	   "CTRL-O CTRL-T"
+
+在帮助窗口中:
+事件   	      光标位置	     选择      	    是否改  活动      ~
+					    变窗口  	      ~
+<2-LeftMouse>   yes     (cannot be active)  no	   "^]" (jump to help tag)
+
+当 'mousemodel' 是 "popup", 有这些不同:
+
+一般模式:
+事件   	      光标位置	     选择      	    是否改  活动      ~
+					    变窗口  	      ~
+<S-LeftMouse>	yes	start or extend (1) no
+<A-LeftMouse>   yes start or extend blockw. no		      *<A-LeftMouse>*
+<RightMouse>	no	popup menu	    no
+
+插入替换模式:
+事件   	      光标位置	     选择      	    是否改  活动      ~
+					    变窗口  	      ~
+<S-LeftMouse>   yes     start or extend (1) no	   like CTRL-O (1)
+<A-LeftMouse>   yes start or extend blockw. no
+<RightMouse>    no	popup menu	    no
+
+(1) 仅当按下后鼠标指针移动时
+(2) 仅当单击位于同一缓冲区时
+
+单击鼠标左键可定位光标. 如果单击在另一个窗口中, 则该窗口将成为活动窗口.
+编辑命令行时, 光标只能位于命令行上, 当处于插入模式时, Vim 保持在插入模式.
+如果设置了 'scrolloff', 并且光标位于窗口边框的 'scrolloff' 行内, 则文本将滚动.
+
+可以通过在第一个字符上按下鼠标左键, 将鼠标移动到最后一个字符,
+然后释放鼠标按钮来开始选择.在释放按钮之前,您不会始终看到选择, 只有在某些版本(
+GUI 、 Win32 ) 中才会立即显示拖动.请注意, 当 'scrolloff' 为非零时,
+您可以通过在窗口的第一行/最后一行移动鼠标至少一个字符来滚动文本.
+
+在一般、可视和选择模式下, 单击鼠标右键可扩展视觉区域. 当 'mousemodel' 为
+"popup" 时, 必须在按住 shift 键的同时使用左键.
+在编辑另一个缓冲区的窗口中单击时, 可视和选择模式将停止.
+
+在一般、可视和选择模式下, 在按住 alt 键的情况下,
+单击鼠标右键会导致视觉区域变为块状. 当 'mousemodel' 是 "popup" 时,左键必须与
+alt 键一起使用. 请注意, 这在窗口管理器在按下 alt
+键时消耗鼠标事件的系统上不起作用( 它可能会移动窗口 ).
+
+							*double-click*
+对于 Win32 和 xterm,当 GUI 处于活动状态时, 支持双击、三次和四次单击.
+为了选择文本, 额外的单击会扩展选择范围:
+	点击		选择范围 ~
+	double		word or % match		*<2-LeftMouse>*
+	triple		line			*<3-LeftMouse>*
+	quadruple	rectangular block	*<4-LeftMouse>*
+异常: 在帮助窗口中, 双击会跳转到所单击单词的帮助.
+双击一个单词就可以选择该单词. 'iskeyword' 用于指定单词中包含哪些字符.
+双击有匹配项的字符，直到匹配为止( 如使用 "v%"). 如果匹配的是 #If/#else/#endif
+块, 则所选内容将变为线宽.
+对于 MS Windows 和 xterm, 双击的时间可以用 'mousetime' 选项设置. 对于其他系统,
+这个时间是在 Vim 外定义的. 例如, 使用双击跳转到光标下的标记: >vim
+	:map <2-LeftMouse> :exe "tag " .. expand("<cword>")<CR>
+
+双击鼠标( 向下、向上、向下且拖动 ) 将选择整个单词.
+这种情况还在继续直到按钮被释放,此时选择再次按字符进行.
+
+对于滚动鼠标详见 |scroll-mouse-wheel|.
+
+在插入模式下, 启动选择时, Vim 会暂时进入正常模式. 当可视或选择模式结束时,
+它将返回到插入模式. 这类似于在插入模式下使用 CTRL-O. 当 'selectmode' 选项包含
+"mouse" 时, 将使用选择模式.
+
+					*<MiddleRelease>* *<MiddleDrag>*
+鼠标点击可以映射. 鼠标单击的代码为:
+     代码	    鼠标按钮	      	    正常行为	~
+ <LeftMouse>	 left pressed		    set cursor position
+ <LeftDrag>	 left moved while pressed   extend selection
+ <LeftRelease>	 left released		    set selection end
+ <MiddleMouse>	 middle pressed		    paste text at cursor position
+ <MiddleDrag>	 middle moved while pressed -
+ <MiddleRelease> middle released	    -
+ <RightMouse>	 right pressed		    extend selection
+ <RightDrag>	 right moved while pressed  extend selection
+ <RightRelease>  right released		    set selection end
+ <X1Mouse>	 X1 button pressed	    -			*X1Mouse*
+ <X1Drag>	 X1 moved while pressed	    -			*X1Drag*
+ <X1Release>	 X1 button release	    -			*X1Release*
+ <X2Mouse>	 X2 button pressed	    -			*X2Mouse*
+ <X2Drag>	 X2 moved while pressed     -			*X2Drag*
+ <X2Release>	 X2 button release	    -			*X2Release*
+
+X1 和 X2 按钮指的是在一些鼠标身上的额外按钮. 
+"Microsoft Explorer" 鼠标的右拇指可以使用这些按钮.
+目前 X1 和 X2 只能在 Win32 和 X11 环境中工作.
+
+例如: >vim
+	:noremap <MiddleMouse> <LeftMouse><MiddleMouse>
+粘贴在鼠标中键单击的位置( 否则粘贴将在光标位置完成 ). >vim
+
+	:noremap <LeftRelease> <LeftRelease>y
+使用可视模式时,立即复制所选内容.
+
+请注意使用 ":noremap" 而不是 "map"以避免递归映射.
+>vim
+	:map <X1Mouse> <C-O>
+	:map <X2Mouse> <C-I>
+将 X1 和 X2 按钮映射到跳转列表中的前进和后退, 见 |CTRL-O| 和 |CTRL-I|.
+
+						*mouse-swap-buttons*
+要交换鼠标左键和右键的含义, 请执行以下操作: >vim
+	:noremap	<LeftMouse>	<RightMouse>
+	:noremap	<LeftDrag>	<RightDrag>
+	:noremap	<LeftRelease>	<RightRelease>
+	:noremap	<RightMouse>	<LeftMouse>
+	:noremap	<RightDrag>	<LeftDrag>
+	:noremap	<RightRelease>	<LeftRelease>
+	:noremap	g<LeftMouse>	<C-RightMouse>
+	:noremap	g<RightMouse>	<C-LeftMouse>
+	:noremap!	<LeftMouse>	<RightMouse>
+	:noremap!	<LeftDrag>	<RightDrag>
+	:noremap!	<LeftRelease>	<RightRelease>
+	:noremap!	<RightMouse>	<LeftMouse>
+	:noremap!	<RightDrag>	<LeftDrag>
+	:noremap!	<RightRelease>	<LeftRelease>
+<
+ vim:tw=78:ts=8:ft=help:norl:
